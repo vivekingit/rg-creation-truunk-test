@@ -18,4 +18,8 @@ terraform {
 
 provider "azurerm" {
   features {}
+  
+  # Use Service Principal authentication via environment variables
+  use_cli = false
+  use_msi = false
 }

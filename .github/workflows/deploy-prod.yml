@@ -34,6 +34,8 @@ jobs:
           ARM_CLIENT_SECRET: ${{ secrets.AZ_VALUE_NAME }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
           ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+          ARM_USE_CLI: false
+          ARM_USE_MSI: false
 
       - name: Terraform Plan
         id: plan
@@ -43,6 +45,8 @@ jobs:
           ARM_CLIENT_SECRET: ${{ secrets.AZ_VALUE_NAME }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
           ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+          ARM_USE_CLI: false
+          ARM_USE_MSI: false
 
       - name: Terraform Apply
         run: terraform apply -var-file=prod.tfvars -auto-approve
@@ -51,6 +55,8 @@ jobs:
           ARM_CLIENT_SECRET: ${{ secrets.AZ_VALUE_NAME }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
           ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+          ARM_USE_CLI: false
+          ARM_USE_MSI: false
 
       - name: Output Results
         run: terraform output -json
