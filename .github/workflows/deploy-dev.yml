@@ -1,0 +1,73 @@
+name: Deploy to Dev
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to confirm'
+        required: true
+        default: ''
+  push:
+    branches:
+      - main
+    paths:
+      - 'envs/dev/**'
+
+jobs:
+  deploy:
+    name: Plan and Apply Dev
+    runs-on: ubuntu-latest
+    environment: dev
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.confirm == 'deploy' || github.event_name == 'push'
+    
+    defaults:
+      run:
+        working-directory: ./envs/dev
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.AZ_VALUE_NAME }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+
+      - name: Terraform Init
+        run: terraform init
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZ_VALUE_NAME }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -var-file=dev.tfvars -out=tfplan
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZ_VALUE_NAME }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+      - name: Terraform Apply
+        run: terraform apply -var-file=dev.tfvars -auto-approve
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZ_VALUE_NAME }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+      - name: Output Results
+        run: terraform output -json

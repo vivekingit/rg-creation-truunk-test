@@ -1,0 +1,102 @@
+name: Reusable Terraform Plan
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Environment to plan (dev, qa, prod)'
+        required: true
+        type: string
+      working_directory:
+        description: 'Working directory for Terraform'
+        required: true
+        type: string
+    secrets:
+      ARM_CLIENT_ID:
+        required: true
+      AZ_VALUE_NAME:
+        required: true
+      ARM_SUBSCRIPTION_ID:
+        required: true
+      ARM_TENANT_ID:
+        required: true
+
+jobs:
+  terraform-plan:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.AZ_VALUE_NAME }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+
+      - name: Terraform Init
+        run: terraform init
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZ_VALUE_NAME }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan -var-file=${{ inputs.environment }}.tfvars -out=tfplan -no-color
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZ_VALUE_NAME }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+        continue-on-error: true
+
+      - name: Comment PR with Plan
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const output = `#### Terraform Plan for \`${{ inputs.environment }}\` 🏗️
+            
+            <details><summary>Show Plan</summary>
+            
+            \`\`\`
+            ${{ steps.plan.outputs.stdout }}
+            \`\`\`
+            
+            </details>
+            
+            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
