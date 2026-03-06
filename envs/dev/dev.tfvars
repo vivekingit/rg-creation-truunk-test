@@ -5,5 +5,5 @@ environment         = "dev"
 tags = {
   Project     = "Application-X"
   CostCenter  = "Engineering"
-  Owner       = "DevTeam"
+  Owner       = "DevTeam1"
 }
