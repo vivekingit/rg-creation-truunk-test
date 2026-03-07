@@ -1,0 +1,53 @@
+name: Push Validation - Single Environment Rule
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'envs/**'
+
+jobs:
+  validate-single-environment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check single environment modification
+        run: |
+          echo "Checking if push modifies only one environment..."
+          
+          # Get the list of changed files in the last commit
+          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+          
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          # Find which environments are modified
+          MODIFIED_ENVS=$(echo "$CHANGED_FILES" | grep '^envs/' | cut -d'/' -f2 | sort -u)
+          ENV_COUNT=$(echo "$MODIFIED_ENVS" | grep -v '^$' | wc -l)
+          
+          echo ""
+          echo "Modified environments:"
+          echo "$MODIFIED_ENVS"
+          echo ""
+          echo "Number of environments modified: $ENV_COUNT"
+          
+          if [ "$ENV_COUNT" -gt 1 ]; then
+            echo "⚠️ WARNING: This push modifies multiple environments!"
+            echo "Modified environments: $(echo $MODIFIED_ENVS | tr '\n' ', ')"
+            echo ""
+            echo "Multiple deployment workflows will run simultaneously."
+            echo "Consider splitting changes into separate commits per environment."
+            # Don't fail - just warn, since it's already pushed
+            exit 0
+          elif [ "$ENV_COUNT" -eq 1 ]; then
+            echo "✅ SUCCESS: This push modifies only one environment: $MODIFIED_ENVS"
+            exit 0
+          else
+            echo "⚠️ No environment changes detected in envs/ directory"
+            exit 0
+          fi
