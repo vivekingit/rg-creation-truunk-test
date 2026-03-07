@@ -5,5 +5,5 @@ environment         = "qa"
 tags = {
   Project     = "Application-X"
   CostCenter  = "Engineering"
-  Owner       = "Team B"
+  Owner       = "Team BC"
 }
