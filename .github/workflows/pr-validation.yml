@@ -45,6 +45,36 @@ jobs:
           elif [ "$ENV_COUNT" -eq 1 ]; then
             echo "✅ SUCCESS: This PR modifies only one environment: $MODIFIED_ENVS"
             exit 0
+        - name: Terraform Plan (if single environment)
+          if: success() && steps.Check_single_environment_modification.outcome == 'success'
+          run: |
+            set -e
+            # Get the list of changed files
+            git fetch origin ${{ github.base_ref }}
+            CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+            MODIFIED_ENV=$(echo "$CHANGED_FILES" | grep '^envs/' | cut -d'/' -f2 | sort -u | grep -v '^$')
+            if [ -z "$MODIFIED_ENV" ]; then
+              echo "No environment changes detected. Skipping terraform plan."
+              exit 0
+            fi
+            echo "Running terraform plan for environment: $MODIFIED_ENV"
+            cd envs/$MODIFIED_ENV
+            terraform --version
+            terraform init -backend-config=backend.tf
+            if [ -f "$MODIFIED_ENV.tfvars" ]; then
+              terraform plan -var-file="$MODIFIED_ENV.tfvars"
+            else
+              terraform plan
+            fi
+          env:
+            TF_IN_AUTOMATION: true
+          shell: bash
+          continue-on-error: false
+          id: terraform_plan
+        - name: Upload Terraform Plan Output
+          if: steps.terraform_plan.outcome == 'success'
+          run: |
+            echo "Terraform plan completed. See above for details."
           else
             echo "⚠️  WARNING: No environment changes detected in envs/ directory"
             exit 0

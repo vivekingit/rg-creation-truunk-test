@@ -10,10 +10,6 @@
 # These owners will be requested for review when someone opens a PR
 * @engineering-team
 
-# Development environment
-# No additional approvals required beyond default
-/envs/dev/ @dev-team
-
 # QA environment
 # Requires QA team approval in addition to default
 /envs/qa/ @qa-team @qa-lead
