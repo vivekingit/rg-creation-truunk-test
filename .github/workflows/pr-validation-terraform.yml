@@ -76,6 +76,12 @@ jobs:
           echo "modified_env=$MODIFIED_ENV" >> $GITHUB_OUTPUT
         env:
           TF_IN_AUTOMATION: true
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZ_VALUE_NAME }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+          ARM_USE_CLI: false
+          ARM_USE_MSI: false
         continue-on-error: false
 
       - name: Post Terraform Plan as PR Comment
