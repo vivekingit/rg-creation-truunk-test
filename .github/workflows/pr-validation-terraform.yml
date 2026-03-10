@@ -1,4 +1,4 @@
-name: PR Validation - Single Environment Rule
+name: PR Validation - Terraform Plan
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  validate-single-environment:
+  terraform-plan:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -18,61 +18,45 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check single environment modification
-        id: check_env
+      - name: Detect modified environment
+        id: detect_env
         run: |
-          echo "Checking if PR modifies only one environment..."
+          echo "Detecting modified environment..."
           
           # Get the list of changed files
           git fetch origin ${{ github.base_ref }}
           CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
           
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
+          # Find which environment is modified
+          MODIFIED_ENV=$(echo "$CHANGED_FILES" | grep '^envs/' | cut -d'/' -f2 | sort -u | grep -v '^$' | head -n 1)
           
-          # Find which environments are modified
-          MODIFIED_ENVS=$(echo "$CHANGED_FILES" | grep '^envs/' | cut -d'/' -f2 | sort -u)
-          ENV_COUNT=$(echo "$MODIFIED_ENVS" | grep -v '^$' | wc -l)
-          
-          echo ""
-          echo "Modified environments:"
-          echo "$MODIFIED_ENVS"
-          echo ""
-          echo "Number of environments modified: $ENV_COUNT"
-          
-          if [ "$ENV_COUNT" -gt 1 ]; then
-            echo "❌ ERROR: This PR modifies multiple environments!"
-            echo "Modified environments: $(echo $MODIFIED_ENVS | tr '\n' ', ')"
-            echo ""
-            echo "Policy: One PR should only modify ONE environment."
-            echo "Please split this PR into separate PRs for each environment."
-            exit 1
-          elif [ "$ENV_COUNT" -eq 1 ]; then
-            echo "✅ SUCCESS: This PR modifies only one environment: $MODIFIED_ENVS"
-            echo "modified_env=$MODIFIED_ENVS" >> $GITHUB_OUTPUT
-            exit 0
-          else
-            echo "⚠️  WARNING: No environment changes detected in envs/ directory"
+          if [ -z "$MODIFIED_ENV" ]; then
+            echo "No environment changes detected. Skipping terraform plan."
+            echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
           fi
+          
+          echo "Modified environment: $MODIFIED_ENV"
+          echo "modified_env=$MODIFIED_ENV" >> $GITHUB_OUTPUT
+          echo "skip=false" >> $GITHUB_OUTPUT
 
       - name: Setup Terraform
-        if: steps.check_env.outputs.modified_env != ''
+        if: steps.detect_env.outputs.skip != 'true'
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: latest
           terraform_wrapper: false
 
       - name: Terraform Init and Plan
-        if: steps.check_env.outputs.modified_env != ''
+        if: steps.detect_env.outputs.skip != 'true'
         id: plan
         run: |
-          MODIFIED_ENV="${{ steps.check_env.outputs.modified_env }}"
+          MODIFIED_ENV="${{ steps.detect_env.outputs.modified_env }}"
           echo "Running terraform plan for environment: $MODIFIED_ENV"
           cd envs/$MODIFIED_ENV
           
           echo "Initializing Terraform..."
-          terraform init -backend-config=backend.tf
+          terraform init
           
           echo ""
           echo "Running Terraform Plan..."
@@ -95,7 +79,7 @@ jobs:
         continue-on-error: false
 
       - name: Post Terraform Plan as PR Comment
-        if: steps.check_env.outputs.modified_env != ''
+        if: steps.detect_env.outputs.skip != 'true'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

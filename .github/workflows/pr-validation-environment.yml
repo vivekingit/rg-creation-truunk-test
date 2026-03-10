@@ -1,0 +1,52 @@
+name: PR Validation - Environment Check
+
+on:
+  pull_request:
+    paths:
+      - 'envs/**'
+
+jobs:
+  validate-single-environment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check single environment modification
+        id: check_env
+        run: |
+          echo "Checking if PR modifies only one environment..."
+          
+          # Get the list of changed files
+          git fetch origin ${{ github.base_ref }}
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          # Find which environments are modified
+          MODIFIED_ENVS=$(echo "$CHANGED_FILES" | grep '^envs/' | cut -d'/' -f2 | sort -u)
+          ENV_COUNT=$(echo "$MODIFIED_ENVS" | grep -v '^$' | wc -l)
+          
+          echo ""
+          echo "Modified environments:"
+          echo "$MODIFIED_ENVS"
+          echo ""
+          echo "Number of environments modified: $ENV_COUNT"
+          
+          if [ "$ENV_COUNT" -gt 1 ]; then
+            echo "❌ ERROR: This PR modifies multiple environments!"
+            echo "Modified environments: $(echo $MODIFIED_ENVS | tr '\n' ', ')"
+            echo ""
+            echo "Policy: One PR should only modify ONE environment."
+            echo "Please split this PR into separate PRs for each environment."
+            exit 1
+          elif [ "$ENV_COUNT" -eq 1 ]; then
+            echo "✅ SUCCESS: This PR modifies only one environment: $MODIFIED_ENVS"
+            exit 0
+          else
+            echo "⚠️  WARNING: No environment changes detected in envs/ directory"
+            exit 0
+          fi
