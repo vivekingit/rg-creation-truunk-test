@@ -5,6 +5,10 @@ on:
     paths:
       - 'envs/**'
 
+permissions:
+  pull-requests: write
+  contents: read
+
 jobs:
   validate-single-environment:
     runs-on: ubuntu-latest
@@ -15,6 +19,7 @@ jobs:
           fetch-depth: 0
 
       - name: Check single environment modification
+        id: check_env
         run: |
           echo "Checking if PR modifies only one environment..."
           
@@ -44,38 +49,108 @@ jobs:
             exit 1
           elif [ "$ENV_COUNT" -eq 1 ]; then
             echo "✅ SUCCESS: This PR modifies only one environment: $MODIFIED_ENVS"
+            echo "modified_env=$MODIFIED_ENVS" >> $GITHUB_OUTPUT
             exit 0
-        - name: Terraform Plan (if single environment)
-          if: success() && steps.Check_single_environment_modification.outcome == 'success'
-          run: |
-            set -e
-            # Get the list of changed files
-            git fetch origin ${{ github.base_ref }}
-            CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
-            MODIFIED_ENV=$(echo "$CHANGED_FILES" | grep '^envs/' | cut -d'/' -f2 | sort -u | grep -v '^$')
-            if [ -z "$MODIFIED_ENV" ]; then
-              echo "No environment changes detected. Skipping terraform plan."
-              exit 0
-            fi
-            echo "Running terraform plan for environment: $MODIFIED_ENV"
-            cd envs/$MODIFIED_ENV
-            terraform --version
-            terraform init -backend-config=backend.tf
-            if [ -f "$MODIFIED_ENV.tfvars" ]; then
-              terraform plan -var-file="$MODIFIED_ENV.tfvars"
-            else
-              terraform plan
-            fi
-          env:
-            TF_IN_AUTOMATION: true
-          shell: bash
-          continue-on-error: false
-          id: terraform_plan
-        - name: Upload Terraform Plan Output
-          if: steps.terraform_plan.outcome == 'success'
-          run: |
-            echo "Terraform plan completed. See above for details."
           else
             echo "⚠️  WARNING: No environment changes detected in envs/ directory"
             exit 0
           fi
+
+      - name: Setup Terraform
+        if: steps.check_env.outputs.modified_env != ''
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: latest
+          terraform_wrapper: false
+
+      - name: Terraform Init and Plan
+        if: steps.check_env.outputs.modified_env != ''
+        id: plan
+        run: |
+          MODIFIED_ENV="${{ steps.check_env.outputs.modified_env }}"
+          echo "Running terraform plan for environment: $MODIFIED_ENV"
+          cd envs/$MODIFIED_ENV
+          
+          echo "Initializing Terraform..."
+          terraform init -backend-config=backend.tf
+          
+          echo ""
+          echo "Running Terraform Plan..."
+          
+          # Capture plan output
+          if [ -f "$MODIFIED_ENV.tfvars" ]; then
+            terraform plan -var-file="$MODIFIED_ENV.tfvars" -no-color -out=tfplan 2>&1 | tee plan_output.txt
+          else
+            terraform plan -no-color -out=tfplan 2>&1 | tee plan_output.txt
+          fi
+          
+          # Save plan output for comment
+          echo "PLAN_OUTPUT<<EOF" >> $GITHUB_ENV
+          cat plan_output.txt >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          
+          echo "modified_env=$MODIFIED_ENV" >> $GITHUB_OUTPUT
+        env:
+          TF_IN_AUTOMATION: true
+        continue-on-error: false
+
+      - name: Post Terraform Plan as PR Comment
+        if: steps.check_env.outputs.modified_env != ''
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const output = process.env.PLAN_OUTPUT;
+            const env = '${{ steps.plan.outputs.modified_env }}';
+            
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => {
+              return comment.user.type === 'Bot' && comment.body.includes('Terraform Plan for Environment:')
+            });
+            
+            const commentBody = `## Terraform Plan for Environment: \`${env}\`
+            
+            <details>
+            <summary>📋 Click to view the full plan output</summary>
+            
+            \`\`\`terraform
+            ${output}
+            \`\`\`
+            
+            </details>
+            
+            ---
+            
+            **✅ Plan Status:** Successful
+            
+            **⚠️ Please review the plan carefully before approving this PR.**
+            
+            - Check for any unexpected resource changes
+            - Verify that only intended resources will be created/modified/destroyed
+            - Ensure the changes align with the PR description
+            
+            *Plan generated for PR #${{ github.event.pull_request.number }} at ${new Date().toISOString()}*`;
+            
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: commentBody
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: commentBody
+              });
+            }
